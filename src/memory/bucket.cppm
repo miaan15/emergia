@@ -106,8 +106,7 @@ public:
         return num_used_blocks == 0;
     }
 
-    [[nodiscard]] auto full() const noexcept -> bool
-    {
+    [[nodiscard]] auto full() const noexcept -> bool {
         return num_used_blocks == num_blocks;
     }
 

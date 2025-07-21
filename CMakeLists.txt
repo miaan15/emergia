@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.14) # Version 3.14 allow to FetchContent_MakeAvailable
+cmake_minimum_required(VERSION 3.30)
 
 # Project: emergia
 project(emergia LANGUAGES CXX)
@@ -7,6 +7,10 @@ project(emergia LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+
+# Options
+option(EMG_BUILD_DEMOS "Enable build demos" OFF)
+option(EMG_BUILD_TESTS "Enable build tests" OFF)
 
 # Include modules
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/compiler-flags.cmake")
@@ -60,10 +64,24 @@ FetchContent_GetProperties(spdlog)
 FetchContent_MakeAvailable(spdlog)
 message(STATUS "${Green}spdlog fetched to: ${spdlog_SOURCE_DIR}${ColorReset}")
 
-# Demo
-add_executable(emg_demo)
-target_sources(emg_demo
-    PRIVATE
-        demo/main.cpp)
+add_library(emergia)
+add_library(emg ALIAS emergia)
 
-setup_compiler_flags(emg_demo)
+target_sources(emergia 
+    PUBLIC
+        FILE_SET emergia_modules
+        TYPE CXX_MODULES
+        BASE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/src/
+        FILES
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/memory/bucket.cppm
+)
+
+target_compile_features(emergia PUBLIC cxx_std_23)
+if(EMG_BUILD_DEMOS)
+    add_subdirectory(demo)
+endif()
+
+if(EMG_BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(test)
+endif()
