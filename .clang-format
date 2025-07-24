@@ -1,45 +1,5 @@
-BasedOnStyle: Google
+BasedOnStyle: LLVM
 Language: Cpp
 
-# Column limit
-ColumnLimit: 0
-
-# Indentation
-IndentWidth: 4
-TabWidth: 4
-UseTab: Never
-ContinuationIndentWidth: 4
-IndentCaseLabels: false
-IndentPPDirectives: None
-AccessModifierOffset: -4
-
-# Allow short block of code
-AllowShortBlocksOnASingleLine: Empty
-AllowShortCaseLabelsOnASingleLine: true
-AllowShortCaseExpressionOnASingleLine: true
-AllowShortFunctionsOnASingleLine: Inline
-AllowShortIfStatementsOnASingleLine: WithoutElse
-AllowShortLoopsOnASingleLine: true
-KeepEmptyLinesAtTheStartOfBlocks: false
-AlwaysBreakAfterReturnType: None
-
-# Alignment
-AlignAfterOpenBracket: Align
-AlignEscapedNewlines: LeftWithLastLine
-AlignOperands: AlignAfterOperator
-AlignTrailingComments: Never
-
-# Line breaks
-BreakBeforeBraces: Attach
-BreakBeforeConceptDeclarations: Allowed
-BreakBeforeBinaryOperators: NonAssignment
-BreakBeforeTernaryOperators: true
-BreakConstructorInitializers: BeforeComma
-BreakTemplateDeclarations: Yes
-
-# Spacing
-SpaceBeforeAssignmentOperators: true
-SpaceBeforeParens: ControlStatements
-SpaceInEmptyParentheses: false
-SpacesInAngles: Never
-SpacesInContainerLiterals: false
+ColumnLimit: 100
+AllowShortFunctionsOnASingleLine: Empty
