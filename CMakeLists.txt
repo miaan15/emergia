@@ -64,19 +64,23 @@ FetchContent_GetProperties(spdlog)
 FetchContent_MakeAvailable(spdlog)
 message(STATUS "${Green}spdlog fetched to: ${spdlog_SOURCE_DIR}${ColorReset}")
 
-add_library(emergia)
+add_library(emergia INTERFACE)
 add_library(emg ALIAS emergia)
+add_library(emg::emg ALIAS emergia)
 
 target_sources(emergia 
     PUBLIC
-        FILE_SET emergia_modules
-        TYPE CXX_MODULES
+        FILE_SET emergia_headers
+        TYPE HEADERS
         BASE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/src/
         FILES
-            ${CMAKE_CURRENT_SOURCE_DIR}/src/memory/bucket.cppm
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/memory/bucket.hpp
+)
+target_include_directories(emergia
+    INTERFACE
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
 )
 
-target_compile_features(emergia PUBLIC cxx_std_23)
 if(EMG_BUILD_DEMOS)
     add_subdirectory(demo)
 endif()
