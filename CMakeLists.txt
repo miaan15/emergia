@@ -75,6 +75,7 @@ target_sources(emergia
         BASE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/src/
         FILES
             ${CMAKE_CURRENT_SOURCE_DIR}/src/memory/bucket.hpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/memory/pool.hpp
 )
 target_include_directories(emergia
     INTERFACE
