@@ -83,6 +83,7 @@ private:
     block_type next_block;
     std::int16_t flag;
   };
+  using node_flag_type = decltype(std::declval<embedded_node>().flag);
 
 public:
   static constexpr size_type BlockSize
@@ -119,8 +120,33 @@ public:
     current_freed_block = 0;
 
     // At first, the whole memory is a big Block chunk
-    get_node_from_block(0)->flags = TotalNumBlocks;
-    get_node_from_block(TotalNumBlocks - 1)->flag = -TotalNumBlocks;
+    get_node_from_block(0)->flag = static_cast<node_flag_type>(TotalNumBlocks);
+    get_node_from_block(TotalNumBlocks - 1)->flag = static_cast<node_flag_type>(-TotalNumBlocks);
+  }
+
+  // No copying
+  bucket(const bucket &) = delete;
+  auto operator=(const bucket &) -> bucket & = delete;
+
+  // but yes moving
+  constexpr bucket(bucket &&other) noexcept
+      : buffer(other.buffer), num_used_blocks(other.num_used_blocks),
+        current_freed_block(other.current_freed_block) {
+    other.buffer = nullptr;
+    other.num_used_blocks = 0;
+    other.current_freed_block = 0;
+  }
+  constexpr auto operator=(bucket &&other) noexcept -> bucket & {
+    if (this != &other) {
+      buffer = other.buffer;
+      num_used_blocks = other.num_used_blocks;
+      current_freed_block = other.current_freed_block;
+
+      other.buffer = nullptr;
+      other.num_used_blocks = 0;
+      other.current_freed_block = 0;
+    }
+    return *this;
   }
 
   ~bucket() {
@@ -148,7 +174,7 @@ public:
 
     // Search through the embedded list until found the suited Blocks
     embedded_node *previous_node = nullptr; // save the previous Node for the linked list
-    while (current_suited_node->space < n) {
+    while (current_suited_node->flag < static_cast<node_flag_type>(n)) {
       previous_node = current_suited_node;
 
       current_suited_block = current_suited_node->next_block;
@@ -156,7 +182,8 @@ public:
     }
 
     block_type next_block_after_suited_chunk
-        = n > 1 ? get_node_from_block(current_suited_block + (n - 1))->next_block
+        = n > 1 ? get_node_from_block(current_suited_block + static_cast<block_type>(n - 1))
+                      ->next_block
                 : current_suited_node->next_block;
     assert(next_block_after_suited_chunk <= TotalNumBlocks);
 
@@ -167,14 +194,15 @@ public:
     // Later, we will remove n Block of the suited Block chunk from the embedded list, so we need to
     // update the rest of the Block chunk flags.
     // We update only if the suited Block chunk is a sub-chunk of a bigger chunk
-    if (next_block_after_suited_chunk - current_freed_block == n) {
-      embedded_node next_node_after_suited_chunk
+    if (next_block_after_suited_chunk - current_freed_block == static_cast<block_type>(n)) {
+      embedded_node *next_node_after_suited_chunk
           = get_node_from_block(next_block_after_suited_chunk);
-      next_node_after_suited_chunk->flag = current_suited_node->flag - n;
+      next_node_after_suited_chunk->flag = current_suited_node->flag - static_cast<node_flag_type>(n);
 
       if (next_node_after_suited_chunk->flag > 1) {
-        embedded_node end_of_chunk_node = get_node_from_block(
-            next_block_after_suited_chunk + next_node_after_suited_chunk->flag - 1);
+        embedded_node *end_of_chunk_node = get_node_from_block(
+            next_block_after_suited_chunk
+            + static_cast<block_type>(next_node_after_suited_chunk->flag - 1));
         end_of_chunk_node->flag = -(next_node_after_suited_chunk->flag);
       }
     }
@@ -185,7 +213,7 @@ public:
       current_freed_block = next_block_after_suited_chunk;
     }
 
-    num_used_blocks += n;
+    num_used_blocks += static_cast<uint16_t>(n);
 
     return static_cast<void *>(buffer + current_suited_block * BlockSize);
   }
@@ -198,21 +226,23 @@ public:
 
     auto byte_p = static_cast<std::byte *>(p); // cast to std::byte * for arithmetic calculation
 
-    assert((byte_p - buffer) % BlockSize == 0); // if not aligned with block
+    assert(static_cast<block_type>(byte_p - buffer) % BlockSize == 0); // if not aligned with
+                                                                          // block
 
-    block_type first_block_of_allocated_chunk = (byte_p - buffer) / BlockSize;
+    block_type first_block_of_allocated_chunk
+        = static_cast<block_type>(byte_p - buffer) / BlockSize;
     embedded_node *first_node_of_allocated_chunk
         = get_node_from_block(first_block_of_allocated_chunk);
     embedded_node *end_node_of_allocated_chunk
-        = get_node_from_block(first_block_of_allocated_chunk + n - 1);
+        = get_node_from_block(first_block_of_allocated_chunk + static_cast<block_type>(n - 1));
 
     // Set flags for allocated chunk
-    first_node_of_allocated_chunk->flag = n;
-    end_node_of_allocated_chunk->flag = -n;
+    first_node_of_allocated_chunk->flag = static_cast<node_flag_type>(n);
+    end_node_of_allocated_chunk->flag = static_cast<node_flag_type>(-n);
     // Link together Nodes from the allocated chunk
     {
-      embedded_node *i_node = first_node_of_allocated_chunk,
-                    i_block = first_block_of_allocated_chunk;
+      embedded_node *i_node = first_node_of_allocated_chunk;
+      block_type i_block = first_block_of_allocated_chunk;
 
       while (i_node != end_node_of_allocated_chunk) {
         i_node->next_block = ++i_block;
@@ -248,18 +278,20 @@ private:
     for (auto _ : std::views::iota(0u, attempts)) {
       block_type end_block_of_current_chunk = get_block_from_node(t_end_node);
       block_type next_block_after_current_chunk = t_end_node->next_block;
-      embedded_node *next_node_after_chunk = get_node_from_block(next_block_after_current_chunk);
+      embedded_node *next_node_after_current_chunk
+          = get_node_from_block(next_block_after_current_chunk);
 
       if (next_block_after_current_chunk > end_block_of_current_chunk
           && next_block_after_current_chunk - end_block_of_current_chunk
                  == 1) { // if the next block is adjacement after the
                          // end of chunk
         embedded_node *begin_node_of_chunk = get_node_from_block(t_begin_block);
-        embedded_node *end_node_of_chunk
-            = get_node_from_block(next_node_after_chunk + next_node_after_chunk->flag - 1);
+        embedded_node *end_node_of_chunk = get_node_from_block(
+            next_block_after_current_chunk
+            + static_cast<block_type>(next_node_after_current_chunk->flag - 1));
 
-        begin_node_of_chunk = begin_node_of_chunk->flag + next_node_after_chunk->flag;
-        end_node_of_chunk = -begin_node_of_chunk->flag;
+        begin_node_of_chunk->flag = begin_node_of_chunk->flag + next_node_after_current_chunk->flag;
+        end_node_of_chunk->flag = -begin_node_of_chunk->flag;
 
         t_end_node = end_node_of_chunk;
       } else if (next_block_after_current_chunk < t_begin_block
@@ -267,11 +299,12 @@ private:
                             + get_node_from_block(next_block_after_current_chunk)->flag
                         == t_begin_block) { // if the next block is adjacement after the end of
                                             // chunk
-        embedded_node *begin_node_of_chunk = next_node_after_chunk;
+        embedded_node *begin_node_of_chunk = next_node_after_current_chunk;
         embedded_node *end_node_of_chunk = t_end_node;
 
-        begin_node_of_chunk = begin_node_of_chunk->flag + get_node_from_block(t_begin_block)->flag;
-        end_node_of_chunk = -begin_node_of_chunk->flag;
+        begin_node_of_chunk->flag
+            = begin_node_of_chunk->flag + get_node_from_block(t_begin_block)->flag;
+        end_node_of_chunk->flag = -begin_node_of_chunk->flag;
 
         t_begin_block = get_block_from_node(begin_node_of_chunk);
       } else {
@@ -285,39 +318,39 @@ private:
   // NOTE: These 3 function is the main reason why alignment of
   // embedded_node have to = 2 (for better performance)
   [[nodiscard]] inline auto get_node_from_block(block_type block) const -> embedded_node * {
-    const auto *block_address = buffer + block * BlockSize;
+    auto *block_address = buffer + block * BlockSize;
 
     if constexpr (BlockSize % 2 == 0) {
-      return static_cast<embedded_node *>(block_address);
+      return reinterpret_cast<embedded_node *>(block_address);
     }
 
     if (block % 2 == 0) {
-      return static_cast<embedded_node *>(block_address);
+      return reinterpret_cast<embedded_node *>(block_address);
     } else {
-      return static_cast<embedded_node *>(block_address + 1);
+      return reinterpret_cast<embedded_node *>(block_address + 1);
     }
   }
 
   [[nodiscard]] inline auto get_block_address_from_node(embedded_node *node) const -> std::byte * {
     if constexpr (BlockSize % 2 == 0) {
-      return static_cast<std::byte *>(node);
+      return reinterpret_cast<std::byte *>(node);
     }
 
     auto intptr = reinterpret_cast<std::uintptr_t>(node);
 
     if (intptr % BlockSize == 0) {
-      return static_cast<std::byte *>(node);
+      return reinterpret_cast<std::byte *>(node);
     } else {
-      return static_cast<std::byte *>(node - 1);
+      return reinterpret_cast<std::byte *>(node - 1);
     }
   }
 
   [[nodiscard]] inline auto get_block_from_node(embedded_node *node) const -> block_type {
     const auto *block_address = get_block_address_from_node(node);
-    return static_cast<block_type>((block_address - buffer) / BlockSize);
+    return static_cast<block_type>(block_address - buffer) / BlockSize;
   }
 
-private:
+public:
   // The actually buffer of memory the Bucket allocated
   std::byte *buffer;
 
@@ -327,6 +360,18 @@ private:
   // try to allocate, we will start from here
   block_type current_freed_block;
 };
+
+template <std::size_t Size, std::size_t BucketSize>
+constexpr auto operator==(const bucket<Size, BucketSize> &lhs,
+                          const bucket<Size, BucketSize> &rhs) {
+  return lhs.buffer == rhs.buffer;
+}
+
+template <std::size_t Size, std::size_t BucketSize>
+constexpr auto operator!=(const bucket<Size, BucketSize> &lhs,
+                          const bucket<Size, BucketSize> &rhs) {
+  return !(lhs == rhs);
+}
 
 } // namespace emg::memory
 
