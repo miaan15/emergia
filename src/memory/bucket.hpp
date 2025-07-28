@@ -49,11 +49,11 @@
 #include <Windows.h>
 #endif
 
-#ifndef EMG_MAX_BUCKET_SIZE
-#define EMG_MAX_BUCKET_SIZE INT16_MAX * 4
+// TODO: benchmark to find the best number
+#ifndef EMG_DEFAULT_BUCKET_SIZE
+#define EMG_DEFAULT_BUCKET_SIZE 131072 // (= maxint16 * 4 = 128 kb)
 #endif
 
-// TODO: benchmark this to find the best number
 #ifndef EMG_BUCKET_DEFRAC_ATTEMPT
 #define EMG_BUCKET_DEFRAC_ATTEMPT 6
 #endif
@@ -67,8 +67,8 @@ namespace emg::memory {
  * @note BucketSize defaults to EMG_MAX_BUCKET_SIZE.
  * @requires BucketSize <= EMG_MAX_BUCKET_SIZE
  */
-template <std::size_t Size, std::size_t BucketSize = EMG_MAX_BUCKET_SIZE>
-  requires(BucketSize <= EMG_MAX_BUCKET_SIZE)
+template <std::size_t Size, std::size_t BucketSize = EMG_DEFAULT_BUCKET_SIZE>
+  requires(Size *INT16_MAX <= BucketSize)
 class bucket {
 public:
   using size_type = std::size_t;
@@ -303,12 +303,12 @@ private:
       return static_cast<std::byte *>(node);
     }
 
-    const auto intptr = reinterpret_cast<std::uintptr_t>(node);
+    auto intptr = reinterpret_cast<std::uintptr_t>(node);
 
     if (intptr % BlockSize == 0) {
-      return static_cast<std::byte *>(intptr);
+      return static_cast<std::byte *>(node);
     } else {
-      return static_cast<std::byte *>(intptr - 1);
+      return static_cast<std::byte *>(node - 1);
     }
   }
 
