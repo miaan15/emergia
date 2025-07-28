@@ -1,11 +1,11 @@
 // ==================================================================================================
-// The Bucket allocator manages a fixed-size chunk of memory, divided into an integral number of
-// equal-sized blocks called Blocks, all Block have the same size.
+// The Bucket is a (kind of) allocator that manages a fixed-size chunk of memory, divided into an
+// integral number of equal-sized blocks called Blocks, all Block have the same size.
 //
-//   Memory allocations are performed in units of blocks: allocating n blocks reserves n * Size
+//   Memory allocations are performed in units of Blocks: allocating n Blocks reserves n * Size
 //   bytes of contiguous memory.
 //
-//   Tracks freed (not allocated or deallocated) blocks internally to reduce fragmentation.
+//   Tracks freed (not allocated or deallocated) Blocks internally to reduce fragmentation.
 //
 //   There is no memory overhead (except when Size < embeded-list's Node size).
 //
@@ -14,34 +14,31 @@
 //   Freed Blocks are used to store a Node structure for forming an embedded singly linked list of
 //   available (freed) Blocks.
 //
-//   On allocation, we traverses the embedded list to find the Blocks chunk large enough, then
-//   return that and remove that chunk from the list.
+//   On allocation, we traverses the embedded list to find a large enough Block chunk and return
 //
-//   On deallocation, the deallocated block chunk is wrapped as a seies of Nodes and inserted at
-//   thefront of the free list.
+//   On deallocation, the deallocated Block chunk is wrapped as a series of Nodes and inserted at
+//   the front of the embedded list.
 //
-//   The embedded list is updated accordingly.
+//   The embedded list is updated accordingly in both action.
 //
 // Detail
 // TODO:
 //
 // Definition
 //
-//   Block and Node are actually pretty much the same, they are represent in a same block of memory
-//     Block is that memory as a whole.
-//     Node is existed only if the Block is freed, Node is just uses a part of that memory to store
-//     some data which is useful for the implementation
+//   Block and Node are actually pretty much the same, they are represent in a same block of memory,
+//   or Node is embedded in the memory of the Block, Node is existed only if the Block is freed.
 //
 //   A Block chunk is a group of continuous freed Blocks
 // ==================================================================================================
 #ifndef _EMG_MEMORY_BUCKET_HPP
 #define _EMG_MEMORY_BUCKET_HPP
 
+#include <algorithm>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
-#include <iterator>
-#include <memory>
+#include <cstring>
 #include <new>
 #include <ranges>
 
@@ -63,29 +60,33 @@
 
 namespace emg::memory {
 
-// Size: size of Block (in bytes)
-// BucketSize: size of the chunk of memory Bucket hold (in bytes)
-// BucketSize must be < INT16_MAX * 4 since we use int to mark the list
-// index (yes, negative is nessesary)
+/**
+ * @tparam Size Size of each block in bytes.
+ * @tparam BucketSize Size of the memory the bucket holds, in bytes.
+ *
+ * @note BucketSize defaults to EMG_MAX_BUCKET_SIZE.
+ * @requires BucketSize <= EMG_MAX_BUCKET_SIZE
+ */
 template <std::size_t Size, std::size_t BucketSize = EMG_MAX_BUCKET_SIZE>
   requires(BucketSize <= EMG_MAX_BUCKET_SIZE)
 class bucket {
 public:
   using size_type = std::size_t;
-  using block_type = std::uint16_t;
+  using block_type = std::uint16_t; // Block is just an index
 
 private:
   // The embedded list is like a Single linked list
-  // next_block is the index of the next freed Block that a Node links to
-  // flag is a  TODO:
+  // next_block is the index of the next freed Block that a Node points to
+  // If it's the begin node of a Block chunk, flag is the size of that chunk, that value is
+  // negative. If it's the end of the chunk. Otherwise, flag is undefined
   struct embedded_node {
     block_type next_block;
     std::int16_t flag;
   };
 
 public:
-  // in order to embedded a Node in a  Block, the BlockSize must > Node size
-  static constexpr size_type BlockSize = std::max(Size, sizeof(embedded_node));
+  static constexpr size_type BlockSize
+      = std::max(Size, sizeof(embedded_node)); // because Node will be embedded in a Block
   static constexpr size_type TotalNumBlocks = BucketSize / BlockSize;
 
 public:
@@ -117,14 +118,9 @@ public:
     num_used_blocks = 0;
     current_freed_block = 0;
 
-    // At first, the whole is a big Block chunk
-    for (size_type i : std::views::iota(0u, TotalNumBlocks)) {
-      get_node_from_block(i)->next_block = i + 1;
-    }
+    // At first, the whole memory is a big Block chunk
     get_node_from_block(0)->flags = TotalNumBlocks;
-    for (size_type i : std::views::iota(1u, TotalNumBlocks)) {
-      get_node_from_block(i)->flags = -i;
-    }
+    get_node_from_block(TotalNumBlocks - 1)->flag = -TotalNumBlocks;
   }
 
   ~bucket() {
@@ -138,71 +134,98 @@ public:
   }
 
   [[nodiscard]] auto allocate(size_type n) -> void * {
+    // ==============================================================================================
     // The strategy here is pretty much the same as a single-linked list (expect the flag), we took
     // the suited Blocks chunk and then return it, then we link the previous Node to the next Node
     // of that Blocks chunk, then we update the Nodes' flag: when allocate, these allocated blocks
     // are always at the beginning of a Block chunk, so to keep the embedded list valid, we just
     // need to update the flags of the Node on the next Block after these allocated blocks and on
     // the Block at the end of the chunk
+    // ==============================================================================================
 
     embedded_node *current_suited_node = get_node_from_block(current_freed_block);
     block_type current_suited_block = current_freed_block;
 
-    // Search through the embedded list until found the Blocks
-    embedded_node *previous_node = nullptr;
+    // Search through the embedded list until found the suited Blocks
+    embedded_node *previous_node = nullptr; // save the previous Node for the linked list
     while (current_suited_node->space < n) {
       previous_node = current_suited_node;
-      current_suited_node = get_node_from_block(current_suited_node->next_block);
+
+      current_suited_block = current_suited_node->next_block;
+      current_suited_node = get_node_from_block(current_suited_block);
     }
 
-    block_type next_unused_block = // this Block that will soon become the
-                                   // next first Node in the embedded list
-        n > 1 ? get_node_from_block(current_suited_block + (n - 1))->next_block
-              : current_suited_node->next_block;
-
-    // Update next node and the end of chunk node
-    embedded_node next_node = get_node_from_block(next_unused_block);
-    next_node->flag = current_suited_node->flag - n;
-    embedded_node end_of_chunk_node
-        = get_node_from_block(current_suited_block + current_suited_node->flag);
-    end_of_chunk_node->flag = -(next_node->flag);
-
-    assert(next_unused_block <= TotalNumBlocks);
-
-    block_type target_block = current_freed_block; // the result allocated Blocks
-    current_freed_block = next_unused_block;       // attach the new first Node
+    block_type next_block_after_suited_chunk
+        = n > 1 ? get_node_from_block(current_suited_block + (n - 1))->next_block
+                : current_suited_node->next_block;
+    assert(next_block_after_suited_chunk <= TotalNumBlocks);
 
     if (previous_node != nullptr) {
-      previous_node->next_block = next_unused_block; // link the preNode to the nextNode
-                                                     // (just like Single linked list)
+      previous_node->next_block = next_block_after_suited_chunk; // preNode now points to nextNode
+    }
+
+    // Later, we will remove n Block of the suited Block chunk from the embedded list, so we need to
+    // update the rest of the Block chunk flags.
+    // We update only if the suited Block chunk is a sub-chunk of a bigger chunk
+    if (next_block_after_suited_chunk - current_freed_block == n) {
+      embedded_node next_node_after_suited_chunk
+          = get_node_from_block(next_block_after_suited_chunk);
+      next_node_after_suited_chunk->flag = current_suited_node->flag - n;
+
+      if (next_node_after_suited_chunk->flag > 1) {
+        embedded_node end_of_chunk_node = get_node_from_block(
+            next_block_after_suited_chunk + next_node_after_suited_chunk->flag - 1);
+        end_of_chunk_node->flag = -(next_node_after_suited_chunk->flag);
+      }
+    }
+
+    // Attach the new first Node, if the suited Block we found is not the first freed Block then
+    // nothing happens
+    if (current_freed_block == current_suited_block) {
+      current_freed_block = next_block_after_suited_chunk;
     }
 
     num_used_blocks += n;
 
-    return static_cast<void *>(buffer + target_block * BlockSize); // return the actaully memory
-                                                                   // pointer of target_block
+    return static_cast<void *>(buffer + current_suited_block * BlockSize);
   }
 
   auto deallocate(void *p, size_type n) -> void {
-    auto byte_p = static_cast<std::byte *>(p);
+    // ==============================================================================================
+    // TODO:
+    // ==============================================================================================
+    assert(p >= buffer && static_cast<std::byte *>(p) + n < buffer + BucketSize);
 
-    assert((byte_p - buffer) % BlockSize == 0);
-    block_type begin_of_allocated_block = (byte_p - buffer) / BlockSize;
-    embedded_node *begin_of_allocated_node = get_node_from_block(begin_of_allocated_block);
-    embedded_node *end_of_allocated_node = get_node_from_block(begin_of_allocated_block + n - 1);
+    auto byte_p = static_cast<std::byte *>(p); // cast to std::byte * for arithmetic calculation
 
-    begin_of_allocated_node->flag = n;
-    for (embedded_node *i_node = begin_of_allocated_node, i_block = begin_of_allocated_block;
-         i_node != end_of_allocated_node; ++i_block) {
-      i_node->next_block = i_block + 1;
-      i_node = get_node_from_block(i_node->next_block);
+    assert((byte_p - buffer) % BlockSize == 0); // if not aligned with block
+
+    block_type first_block_of_allocated_chunk = (byte_p - buffer) / BlockSize;
+    embedded_node *first_node_of_allocated_chunk
+        = get_node_from_block(first_block_of_allocated_chunk);
+    embedded_node *end_node_of_allocated_chunk
+        = get_node_from_block(first_block_of_allocated_chunk + n - 1);
+
+    // Set flags for allocated chunk
+    first_node_of_allocated_chunk->flag = n;
+    end_node_of_allocated_chunk->flag = -n;
+    // Link together Nodes from the allocated chunk
+    {
+      embedded_node *i_node = first_node_of_allocated_chunk,
+                    i_block = first_block_of_allocated_chunk;
+
+      while (i_node != end_node_of_allocated_chunk) {
+        i_node->next_block = ++i_block;
+        i_node = get_node_from_block(i_node->next_block);
+      }
     }
-    end_of_allocated_node->flag = -n;
-    end_of_allocated_node->next_block = current_freed_block;
+    // Now put the allocated chunk at the front of the embedded list
+    end_node_of_allocated_chunk->next_block = current_freed_block;
 
-    handle_defragment(begin_of_allocated_block, end_of_allocated_node);
+    block_type new_first_block_of_chunk
+        = handle_defragment(first_block_of_allocated_chunk, end_node_of_allocated_chunk);
 
-    current_freed_block = begin_of_allocated_block;
+    current_freed_block = new_first_block_of_chunk;
   }
 
   [[nodiscard]] auto empty() noexcept -> bool {
@@ -218,31 +241,45 @@ public:
 
 private:
   inline auto handle_defragment(block_type begin_block, embedded_node *end_node,
-                                std::uint8_t attempts = EMG_BUCKET_DEFRAC_ATTEMPT) {
-    block_type end_block, next_block;
+                                std::uint8_t attempts = EMG_BUCKET_DEFRAC_ATTEMPT) -> block_type {
+    auto t_begin_block = begin_block;
+    auto t_end_node = end_node;
 
     for (auto _ : std::views::iota(0u, attempts)) {
-      end_block = get_block_from_node(end_node);
-      next_block = end_node->next_block;
-      embedded_node *next_node = get_node_from_block(next_block);
+      block_type end_block_of_current_chunk = get_block_from_node(t_end_node);
+      block_type next_block_after_current_chunk = t_end_node->next_block;
+      embedded_node *next_node_after_chunk = get_node_from_block(next_block_after_current_chunk);
 
-      if (next_block > end_block && next_block - end_block == 1) {
-        embedded_node *begin_of_chunk_node = get_node_from_block(begin_block);
-        embedded_node *end_of_chunk_node = get_node_from_block(next_node + next_node->flag - 1);
+      if (next_block_after_current_chunk > end_block_of_current_chunk
+          && next_block_after_current_chunk - end_block_of_current_chunk
+                 == 1) { // if the next block is adjacement after the
+                         // end of chunk
+        embedded_node *begin_node_of_chunk = get_node_from_block(t_begin_block);
+        embedded_node *end_node_of_chunk
+            = get_node_from_block(next_node_after_chunk + next_node_after_chunk->flag - 1);
 
-        begin_of_chunk_node = begin_of_chunk_node->flag + next_node->flag;
-        end_of_chunk_node = -begin_of_chunk_node->flag;
-      } else if (next_block < begin_block
-                 && next_block + get_node_from_block(next_block)->flag == begin_block) {
-        embedded_node *begin_of_chunk_node = next_node;
-        embedded_node *end_of_chunk_node = end_node;
+        begin_node_of_chunk = begin_node_of_chunk->flag + next_node_after_chunk->flag;
+        end_node_of_chunk = -begin_node_of_chunk->flag;
 
-        begin_of_chunk_node = begin_of_chunk_node->flag + get_node_from_block(begin_block)->flag;
-        end_of_chunk_node = -begin_of_chunk_node->flag;
+        t_end_node = end_node_of_chunk;
+      } else if (next_block_after_current_chunk < t_begin_block
+                 && next_block_after_current_chunk
+                            + get_node_from_block(next_block_after_current_chunk)->flag
+                        == t_begin_block) { // if the next block is adjacement after the end of
+                                            // chunk
+        embedded_node *begin_node_of_chunk = next_node_after_chunk;
+        embedded_node *end_node_of_chunk = t_end_node;
+
+        begin_node_of_chunk = begin_node_of_chunk->flag + get_node_from_block(t_begin_block)->flag;
+        end_node_of_chunk = -begin_node_of_chunk->flag;
+
+        t_begin_block = get_block_from_node(begin_node_of_chunk);
       } else {
         break;
       }
     }
+
+    return t_begin_block;
   }
 
   // NOTE: These 3 function is the main reason why alignment of
@@ -286,9 +323,8 @@ private:
 
   std::uint16_t num_used_blocks;
 
-  // This keep track of the freed Block that is the first Node of the
-  // embedded list, so that when we try to allocate, we will start from
-  // here
+  // This keep track of the freed Block that is the first Node of the embedded list, so that when we
+  // try to allocate, we will start from here
   block_type current_freed_block;
 };
 
