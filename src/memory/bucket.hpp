@@ -51,7 +51,7 @@
 
 // TODO: benchmark to find the best number
 #ifndef EMG_DEFAULT_BUCKET_SIZE
-#define EMG_DEFAULT_BUCKET_SIZE 131072 // (= maxint16 * 4 = 128 kb)
+#define EMG_DEFAULT_BUCKET_SIZE INT16_MAX - 1 // (= maxint16 * 4 - 1)
 #endif
 
 #ifndef EMG_BUCKET_DEFRAC_ATTEMPT
@@ -68,7 +68,7 @@ namespace emg::memory {
  * @requires BucketSize <= EMG_MAX_BUCKET_SIZE
  */
 template <std::size_t Size, std::size_t BucketSize = EMG_DEFAULT_BUCKET_SIZE>
-  requires(Size *INT16_MAX <= BucketSize)
+  requires(BucketSize <= Size * INT16_MAX)
 class bucket {
 public:
   using size_type = std::size_t;
@@ -197,7 +197,8 @@ public:
     if (next_block_after_suited_chunk - current_freed_block == static_cast<block_type>(n)) {
       embedded_node *next_node_after_suited_chunk
           = get_node_from_block(next_block_after_suited_chunk);
-      next_node_after_suited_chunk->flag = current_suited_node->flag - static_cast<node_flag_type>(n);
+      next_node_after_suited_chunk->flag
+          = current_suited_node->flag - static_cast<node_flag_type>(n);
 
       if (next_node_after_suited_chunk->flag > 1) {
         embedded_node *end_of_chunk_node = get_node_from_block(
@@ -227,7 +228,7 @@ public:
     auto byte_p = static_cast<std::byte *>(p); // cast to std::byte * for arithmetic calculation
 
     assert(static_cast<block_type>(byte_p - buffer) % BlockSize == 0); // if not aligned with
-                                                                          // block
+                                                                       // block
 
     block_type first_block_of_allocated_chunk
         = static_cast<block_type>(byte_p - buffer) / BlockSize;
