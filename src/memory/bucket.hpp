@@ -259,15 +259,12 @@ public:
     current_freed_block = new_first_block_of_chunk;
   }
 
-  [[nodiscard]] auto empty() noexcept -> bool {
-    return num_used_blocks == 0;
+  constexpr auto operator==(const bucket<Size, BucketSize> &other) -> bool {
+    return this->buffer == other.buffer;
   }
 
-  [[nodiscard]] auto used_size() noexcept -> size_type {
-    return num_used_blocks;
-  }
-  [[nodiscard]] auto max_size() noexcept -> size_type {
-    return BucketSize;
+  constexpr auto operator!=(const bucket<Size, BucketSize> &other) -> bool {
+    return !(*this == other);
   }
 
 private:
@@ -351,7 +348,7 @@ private:
     return static_cast<block_type>(block_address - buffer) / BlockSize;
   }
 
-public:
+private:
   // The actually buffer of memory the Bucket allocated
   std::byte *buffer;
 
@@ -361,18 +358,6 @@ public:
   // try to allocate, we will start from here
   block_type current_freed_block;
 };
-
-template <std::size_t Size, std::size_t BucketSize>
-constexpr auto operator==(const bucket<Size, BucketSize> &lhs,
-                          const bucket<Size, BucketSize> &rhs) {
-  return lhs.buffer == rhs.buffer;
-}
-
-template <std::size_t Size, std::size_t BucketSize>
-constexpr auto operator!=(const bucket<Size, BucketSize> &lhs,
-                          const bucket<Size, BucketSize> &rhs) {
-  return !(lhs == rhs);
-}
 
 } // namespace emg::memory
 

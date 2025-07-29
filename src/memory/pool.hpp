@@ -46,19 +46,17 @@ public:
     _bucket.deallocate(p, n);
   }
 
+  constexpr auto operator==(const pool<T, PoolSize> &other) -> bool {
+    return this->_bucket == other._bucket;
+  }
+
+  constexpr auto operator!=(const pool<T, PoolSize> &other) -> bool {
+    return !(*this == other);
+  }
+
 private:
   bucket<sizeof(T), EMG_DEFAULT_POOL_SIZE> _bucket;
 };
-
-template <typename T, std::size_t PoolSize>
-constexpr auto operator==(const pool<T, PoolSize> &lhs, const pool<T, PoolSize> &rhs) {
-  return lhs.buffer == rhs.buffer;
-}
-
-template <typename T, std::size_t PoolSize>
-constexpr auto operator!=(const pool<T, PoolSize> &lhs, const pool<T, PoolSize> &rhs) {
-  return !(lhs == rhs);
-}
 
 } // namespace emg::memory
 
