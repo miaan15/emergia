@@ -51,7 +51,7 @@
 
 // TODO: benchmark to find the best number
 #ifndef EMG_DEFAULT_BUCKET_SIZE
-#define EMG_DEFAULT_BUCKET_SIZE INT16_MAX - 1 // (= maxint16 * 4 - 1)
+#define EMG_DEFAULT_BUCKET_SIZE (INT16_MAX * (sizeof(std::uint16_t) + sizeof(std::int16_t)) - 1)
 #endif
 
 #ifndef EMG_BUCKET_DEFRAC_ATTEMPT
@@ -68,7 +68,9 @@ namespace emg::memory {
  * @requires BucketSize <= EMG_MAX_BUCKET_SIZE
  */
 template <std::size_t Size, std::size_t BucketSize = EMG_DEFAULT_BUCKET_SIZE>
-  requires(BucketSize <= Size * INT16_MAX)
+  requires(Size > 0
+           && BucketSize
+                  <= INT16_MAX * std::max(Size, sizeof(std::uint16_t) + sizeof(std::int16_t)))
 class bucket {
 public:
   using size_type = std::size_t;
@@ -96,6 +98,7 @@ public:
     // be = 2, if not... well
     static_assert(alignof(embedded_node) == 2, "this implement explicit need alignment of "
                                                "embedded_node to be = 2");
+    static_assert(TotalNumBlocks > 0, "is it's <= 0, this does nothing");
 
     // Allocate BucketSize bytes in virtual memory
 #if defined(__linux__) || defined(__unix__)
